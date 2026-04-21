@@ -38,12 +38,60 @@ pip install git+https://github.com/malakhov-dmitrii/mempalace-postgres
 ```bash
 export MEMPALACE_BACKEND=postgres
 export MEMPALACE_PG_DSN="postgres://user:password@host:5432/dbname"
-# optional
+
+# optional — pool + schema
 export MEMPALACE_PG_POOL_MAX=10         # default 10
-export MEMPALACE_PG_EMBED_DIM=384       # default 384 (matches Chroma's default embedder)
+export MEMPALACE_PG_EMBED_DIM=384       # default 384
+export MEMPALACE_PG_SKIP_HNSW=1         # create HNSW index manually after bulk import
+
+# optional — write batching (huge speed win during mine)
+export MEMPALACE_PG_BATCH=256           # flush buffer at N drawers (default 256)
+export MEMPALACE_PG_BATCH_TTL=5         # or every N seconds (default 5)
+
+# optional — embedder selection
+export MEMPALACE_PG_EMBEDDER=auto                              # auto | sentence-transformers | chroma-onnx
+export MEMPALACE_PG_EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+export MEMPALACE_PG_EMBED_DEVICE=cpu                           # auto | cpu | mps | cuda
 ```
 
-That's it. Run `mempalace mine`, `mempalace search`, the MCP server — they all use Postgres.
+Run `mempalace mine`, `mempalace search`, the MCP server — they all use Postgres.
+
+## Performance
+
+Two design choices inherited from MemPalace core make the default miner slow: `add_drawer` calls `collection.upsert` once per chunk, and the embedding function it reaches through is Chroma's bundled ONNX CPU model.
+
+This backend fixes both without any upstream change:
+
+1. **Buffered writes.** `add` / `upsert` enqueue into an in-memory buffer per collection and flush in bulk — one batched embedding call + one `executemany` — when the buffer crosses `MEMPALACE_PG_BATCH` entries, when `MEMPALACE_PG_BATCH_TTL` seconds elapse, or when a read / delete / `close()` / process exit forces a flush. Reads always see a consistent view because they flush first.
+2. **Faster embedder when available.** With `sentence-transformers` installed, the backend uses it automatically — batch encoding through PyTorch is ~12× faster than Chroma's per-call ONNX at the same model (`all-MiniLM-L6-v2`), on CPU. For bigger models the same knob exposes CUDA. MPS is skipped by `auto` on purpose (see below).
+
+Micro-bench on Apple M-series, `scripts/bench_embed.py --n 300`:
+
+| Embedder                              | docs/s | speedup |
+|---------------------------------------|-------:|--------:|
+| `chroma-onnx` (CPU, baseline)         |   ~73  |     1× |
+| `sentence-transformers` (CPU / torch) |  ~919  |   12.6× |
+| `sentence-transformers` (MPS)         |  ~244  |    3.4× |
+
+MPS is slower than CPU here because all-MiniLM-L6-v2 is tiny (22M params) and the kernel-launch overhead dominates. For heavier embedders MPS can still win — request it explicitly with `MEMPALACE_PG_EMBED_DEVICE=mps`.
+
+### Bulk imports
+
+For very large initial imports (tens of thousands of drawers) skip the HNSW index during the load and build it once at the end:
+
+```bash
+# first load
+export MEMPALACE_PG_SKIP_HNSW=1
+mempalace mine /path/to/project
+# ...more mines...
+
+# then build the index in one pass
+psql ... -c "CREATE INDEX mempalace_drawers_embedding_idx \
+             ON mempalace_drawers USING hnsw (embedding vector_cosine_ops);"
+unset MEMPALACE_PG_SKIP_HNSW
+```
+
+This is dramatically faster than updating the graph on every insert and avoids the index-bloat pattern seen in [mempalace#344](https://github.com/MemPalace/mempalace/issues/344).
 
 > **Note:** MemPalace core currently hard-codes its default backend to ChromaDB in `palace.py`, ignoring `MEMPALACE_BACKEND` despite the registry supporting it. Until [PR #1072](https://github.com/MemPalace/mempalace/pull/1072) lands, apply the same patch manually or install MemPalace from the branch.
 
