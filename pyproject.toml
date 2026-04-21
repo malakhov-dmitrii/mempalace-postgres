@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mempalace-postgres"
+version = "0.1.0"
+description = "Postgres + pgvector backend for MemPalace"
+requires-python = ">=3.11"
+dependencies = [
+  "mempalace>=3.3.0",
+  "psycopg[binary,pool]>=3.2",
+  "pgvector>=0.3",
+]
+
+[project.entry-points."mempalace.backends"]
+postgres = "mempalace_postgres.backend:PostgresBackend"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mempalace_postgres*"]
