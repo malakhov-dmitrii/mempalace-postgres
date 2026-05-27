@@ -1,0 +1,81 @@
+name: mempalace
+
+services:
+  mempalace-postgres:
+    image: pgvector/pgvector:pg17
+    container_name: mempalace-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mempalace
+      POSTGRES_DB: mempalace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mempalace-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mempalace -d mempalace"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - mempalace-net
+
+  mempalace-mcp:
+    image: ghcr.io/malakhov-dmitrii/mempalace-postgres-mcp:0.2.0
+    container_name: mempalace-mcp
+    restart: unless-stopped
+    depends_on:
+      mempalace-postgres:
+        condition: service_healthy
+    environment:
+      MEMPALACE_BACKEND: postgres
+      MEMPALACE_PG_DSN: postgresql://mempalace:${POSTGRES_PASSWORD}@mempalace-postgres:5432/mempalace
+      MEMPALACE_PG_POOL_MAX: ${MEMPALACE_PG_POOL_MAX:-10}
+      MEMPALACE_PG_EMBED_DIM: ${MEMPALACE_PG_EMBED_DIM:-384}
+      MEMPALACE_PG_EMBEDDER: ${MEMPALACE_PG_EMBEDDER:-chroma-onnx}
+      MEMPALACE_PG_SKIP_HNSW: ${MEMPALACE_PG_SKIP_HNSW:-0}
+    command:
+      - --host=0.0.0.0
+      - --port=8811
+      - --pass-environment
+      - --
+      - python
+      - -m
+      - mempalace.mcp_server
+    networks:
+      - mempalace-net
+
+  mempalace-cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: mempalace-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    depends_on:
+      - mempalace-mcp
+    networks:
+      - mempalace-net
+
+  mempalace-uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: mempalace-uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma-data:/app/data
+    ports:
+      - "127.0.0.1:3001:3001"
+    networks:
+      - mempalace-net
+
+volumes:
+  mempalace-pg-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/mempalace-pg
+  uptime-kuma-data:
+
+networks:
+  mempalace-net:
+    driver: bridge
