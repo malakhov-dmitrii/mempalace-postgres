@@ -705,6 +705,12 @@ _SKIP_HNSW = os.environ.get("MEMPALACE_PG_SKIP_HNSW", "").lower() in ("1", "true
 _SCHEMA_SQL_CORE = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
 
+CREATE TABLE IF NOT EXISTS mempalace_schema_versions (
+    version     INTEGER PRIMARY KEY,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    description TEXT
+);
+
 CREATE TABLE IF NOT EXISTS mempalace_drawers (
     palace_id TEXT NOT NULL,
     collection_name TEXT NOT NULL,
@@ -721,6 +727,35 @@ CREATE INDEX IF NOT EXISTS mempalace_drawers_palace_idx
 
 CREATE INDEX IF NOT EXISTS mempalace_drawers_metadata_idx
     ON mempalace_drawers USING GIN (metadata);
+
+CREATE TABLE IF NOT EXISTS l1_sessions (
+    id             BIGSERIAL PRIMARY KEY,
+    session_id     TEXT NOT NULL,
+    turn_uuid      TEXT NOT NULL,
+    cwd            TEXT,
+    role           TEXT NOT NULL,
+    content_jsonl  JSONB NOT NULL,
+    captured_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (session_id, turn_uuid)
+);
+
+CREATE INDEX IF NOT EXISTS l1_sessions_session_idx
+    ON l1_sessions (session_id, turn_uuid);
+
+CREATE INDEX IF NOT EXISTS l1_sessions_captured_idx
+    ON l1_sessions (captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS l1_capture_state (
+    session_id      TEXT PRIMARY KEY,
+    last_seen_uuid  TEXT NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO mempalace_schema_versions (version, description)
+VALUES
+    (1, 'initial mempalace_drawers schema'),
+    (2, 'l1 session capture schema')
+ON CONFLICT (version) DO NOTHING;
 """
 
 _SCHEMA_SQL_HNSW = """
