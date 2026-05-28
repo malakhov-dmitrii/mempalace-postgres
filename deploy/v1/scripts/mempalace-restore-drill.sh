@@ -36,12 +36,19 @@ docker run -d --name "$RESTORE_CONTAINER" \
   -e POSTGRES_PASSWORD=restore-test \
   pgvector/pgvector:pg17 >/dev/null
 
-for _ in {1..30}; do
-  if docker exec "$RESTORE_CONTAINER" pg_isready -U mempalace -d mempalace >/dev/null 2>&1; then
+ready=0
+for _ in {1..60}; do
+  if docker exec "$RESTORE_CONTAINER" psql -U mempalace -d mempalace -tAc 'SELECT 1' >/dev/null 2>&1; then
+    ready=1
     break
   fi
   sleep 1
 done
+if [[ "$ready" != "1" ]]; then
+  docker logs --tail 50 "$RESTORE_CONTAINER" >&2 || true
+  echo "restore container did not become query-ready" >&2
+  exit 1
+fi
 
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 zcat "$backup_path" | docker exec -i "$RESTORE_CONTAINER" psql -U mempalace -d mempalace >/dev/null
