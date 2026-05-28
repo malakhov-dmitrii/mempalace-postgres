@@ -22,7 +22,7 @@ services:
       - mempalace-net
 
   mempalace-mcp:
-    image: ghcr.io/malakhov-dmitrii/mempalace-postgres-mcp:0.2.0
+    image: ghcr.io/malakhov-dmitrii/mempalace-postgres-mcp:0.2.1
     container_name: mempalace-mcp
     restart: unless-stopped
     depends_on:
@@ -35,6 +35,8 @@ services:
       MEMPALACE_PG_EMBED_DIM: ${MEMPALACE_PG_EMBED_DIM:-384}
       MEMPALACE_PG_EMBEDDER: ${MEMPALACE_PG_EMBEDDER:-chroma-onnx}
       MEMPALACE_PG_SKIP_HNSW: ${MEMPALACE_PG_SKIP_HNSW:-0}
+      MEMPALACE_DEFAULT_PALACE_ID: ${MEMPALACE_DEFAULT_PALACE_ID:-/curated}
+      MEMPALACE_DEFAULT_COLLECTION: ${MEMPALACE_DEFAULT_COLLECTION:-default}
     command:
       - --host=0.0.0.0
       - --port=8811
@@ -42,7 +44,7 @@ services:
       - --
       - python
       - -m
-      - mempalace.mcp_server
+      - mempalace_postgres.mcp_server
     networks:
       - mempalace-net
 
