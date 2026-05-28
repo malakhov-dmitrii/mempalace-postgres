@@ -22,7 +22,7 @@ services:
       - mempalace-net
 
   mempalace-mcp:
-    image: ghcr.io/malakhov-dmitrii/mempalace-postgres-mcp:0.2.1
+    image: ghcr.io/malakhov-dmitrii/mempalace-postgres-mcp:0.2.2
     container_name: mempalace-mcp
     restart: unless-stopped
     depends_on:
